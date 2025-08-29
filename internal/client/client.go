@@ -1,65 +1,51 @@
-package proxy
+package client
 
 import (
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/rfym21/ProxyFlow/internal/auth"
+	"github.com/rfym21/ProxyFlow/internal/models"
+	"github.com/rfym21/ProxyFlow/internal/pool"
 )
 
+// proxyAuthTransport 代理认证传输层
 type proxyAuthTransport struct {
 	base      http.RoundTripper
 	proxyAuth string
 }
 
 func (t *proxyAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if t.base == nil {
-		t.base = http.DefaultTransport
-	}
-	req2 := req.Clone(req.Context())
-	if t.proxyAuth != "" {
-		req2.Header.Set("Proxy-Authorization", t.proxyAuth)
-	}
-	return t.base.RoundTrip(req2)
+	req.Header.Set("Proxy-Authorization", t.proxyAuth)
+	return t.base.RoundTrip(req)
 }
 
-/**
- * HTTP客户端连接池管理器
- */
+// Client HTTP客户端连接池管理器
 type Client struct {
-	pool       *Pool                   // 代理池
+	pool       *pool.Pool              // 代理池
 	clients    map[string]*http.Client // 每个代理的HTTP客户端
 	clientsMux sync.RWMutex            // 客户端映射锁
 	timeout    time.Duration           // 请求超时时间
 }
 
-/**
- * 创建新的HTTP客户端管理器
- * @param {*Pool} pool - 代理池
- * @param {time.Duration} timeout - 请求超时时间
- * @returns {*Client} 客户端实例
- */
-func NewClient(pool *Pool, timeout time.Duration) *Client {
+// NewClient 创建新的HTTP客户端管理器
+func NewClient(proxyPool *pool.Pool, timeout time.Duration) *Client {
 	return &Client{
-		pool:    pool,
+		pool:    proxyPool,
 		clients: make(map[string]*http.Client),
 		timeout: timeout,
 	}
 }
 
-/**
- * 执行HTTP请求
- * @param {*http.Request} req - HTTP请求
- * @returns {*http.Response} HTTP响应
- * @returns {error} 错误信息
- */
+// Do 执行HTTP请求
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	// 获取下一个代理
 	proxy := c.pool.NextProxy()
 	if proxy.Host == "" {
-		return nil, fmt.Errorf("no proxy available")
+		return nil, fmt.Errorf("没有可用的代理")
 	}
 
 	// 获取或创建对应的HTTP客户端
@@ -69,12 +55,8 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return client.Do(req)
 }
 
-/**
- * 获取或创建HTTP客户端
- * @param {ProxyInfo} proxy - 代理信息
- * @returns {*http.Client} HTTP客户端
- */
-func (c *Client) getClient(proxy ProxyInfo) *http.Client {
+// getClient 获取或创建HTTP客户端
+func (c *Client) getClient(proxy models.ProxyInfo) *http.Client {
 	proxyKey := proxy.Host
 
 	// 先尝试读锁获取现有客户端
@@ -101,12 +83,8 @@ func (c *Client) getClient(proxy ProxyInfo) *http.Client {
 	return client
 }
 
-/**
- * 创建HTTP客户端
- * @param {ProxyInfo} proxy - 代理信息
- * @returns {*http.Client} HTTP客户端
- */
-func (c *Client) createClient(proxy ProxyInfo) *http.Client {
+// createClient 创建HTTP客户端
+func (c *Client) createClient(proxy models.ProxyInfo) *http.Client {
 	// 创建代理URL
 	proxyURL := &url.URL{
 		Scheme: proxy.URL.Scheme,
@@ -130,9 +108,8 @@ func (c *Client) createClient(proxy ProxyInfo) *http.Client {
 	// 如果需要认证，包一层添加Proxy-Authorization
 	var rt http.RoundTripper = transport
 	if proxy.Username != "" {
-		auth := fmt.Sprintf("%s:%s", proxy.Username, proxy.Password)
-		encoded := base64.StdEncoding.EncodeToString([]byte(auth))
-		rt = &proxyAuthTransport{base: transport, proxyAuth: "Basic " + encoded}
+		authValue := auth.EncodeBasicAuth(proxy.Username, proxy.Password)
+		rt = &proxyAuthTransport{base: transport, proxyAuth: authValue}
 	}
 
 	// 创建HTTP客户端
@@ -142,9 +119,7 @@ func (c *Client) createClient(proxy ProxyInfo) *http.Client {
 	}
 }
 
-/**
- * 清理客户端连接池
- */
+// Close 清理客户端连接池
 func (c *Client) Close() {
 	c.clientsMux.Lock()
 	defer c.clientsMux.Unlock()

@@ -1,9 +1,8 @@
-package proxy
+package server
 
 import (
 	"bufio"
 	"bytes"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
@@ -11,42 +10,34 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/rfym21/ProxyFlow/internal/auth"
+	"github.com/rfym21/ProxyFlow/internal/client"
+	"github.com/rfym21/ProxyFlow/internal/models"
+	"github.com/rfym21/ProxyFlow/internal/pool"
 )
 
-/**
- * HTTP代理服务器
- */
+// Server HTTP代理服务器
 type Server struct {
-	pool         *Pool         // 代理池
-	client       *Client       // HTTP客户端
-	timeout      time.Duration // 请求超时时间
-	authUsername string        // 认证用户名
-	authPassword string        // 认证密码
+	pool         *pool.Pool     // 代理池
+	client       *client.Client // HTTP客户端
+	timeout      time.Duration  // 请求超时时间
+	authUsername string         // 认证用户名
+	authPassword string         // 认证密码
 }
 
-/**
- * 创建新的代理服务器
- * @param {*Pool} pool - 代理池
- * @param {time.Duration} timeout - 请求超时时间
- * @param {string} authUsername - 认证用户名
- * @param {string} authPassword - 认证密码
- * @returns {*Server} 服务器实例
- */
-func NewServer(pool *Pool, timeout time.Duration, authUsername, authPassword string) *Server {
+// NewServer 创建新的代理服务器
+func NewServer(proxyPool *pool.Pool, timeout time.Duration, authUsername, authPassword string) *Server {
 	return &Server{
-		pool:         pool,
-		client:       NewClient(pool, timeout),
+		pool:         proxyPool,
+		client:       client.NewClient(proxyPool, timeout),
 		timeout:      timeout,
 		authUsername: authUsername,
 		authPassword: authPassword,
 	}
 }
 
-/**
- * 启动代理服务器
- * @param {string} port - 监听端口
- * @returns {error} 错误信息
- */
+// Start 启动代理服务器
 func (s *Server) Start(port string) error {
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
@@ -54,13 +45,13 @@ func (s *Server) Start(port string) error {
 	}
 	defer listener.Close()
 
-	log.Printf("Proxy server starting on port %s", port)
-	log.Printf("Using %d proxies in rotation", s.pool.Size())
+	log.Printf("代理服务器正在端口 %s 上启动", port)
+	log.Printf("使用 %d 个代理进行轮询", s.pool.Size())
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("Error accepting connection: %v", err)
+			log.Printf("接受连接时出错: %v", err)
 			continue
 		}
 
@@ -68,40 +59,32 @@ func (s *Server) Start(port string) error {
 	}
 }
 
-/**
- * 处理TCP连接
- * @param {net.Conn} conn - TCP连接
- */
+// handleConnection 处理TCP连接
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	log.Printf("New connection from %s", conn.RemoteAddr())
+	log.Printf("来自 %s 的新连接", conn.RemoteAddr())
 
 	// 读取第一行来判断请求类型
 	reader := bufio.NewReader(conn)
 	firstLine, err := reader.ReadString('\n')
 	if err != nil {
-		log.Printf("Error reading first line: %v", err)
+		log.Printf("读取第一行时出错: %v", err)
 		return
 	}
 
-	log.Printf("First line: %q", firstLine)
+	log.Printf("第一行: %q", firstLine)
 
 	if strings.HasPrefix(firstLine, "CONNECT ") {
-		log.Printf("Handling CONNECT request")
+		log.Printf("处理 CONNECT 请求")
 		s.handleConnectTCP(conn, reader, firstLine)
 	} else {
-		log.Printf("Handling HTTP request")
+		log.Printf("处理 HTTP 请求")
 		s.handleHTTPTCP(conn, reader, firstLine)
 	}
 }
 
-/**
- * 处理TCP CONNECT请求
- * @param {net.Conn} conn - TCP连接
- * @param {*bufio.Reader} reader - 缓冲读取器
- * @param {string} firstLine - 第一行请求
- */
+// handleConnectTCP 处理TCP CONNECT请求
 func (s *Server) handleConnectTCP(conn net.Conn, reader *bufio.Reader, firstLine string) {
 	// 解析CONNECT请求
 	parts := strings.Fields(firstLine)
@@ -115,18 +98,18 @@ func (s *Server) handleConnectTCP(conn net.Conn, reader *bufio.Reader, firstLine
 		destAddr += ":443"
 	}
 
-	log.Printf("CONNECT target: %s", destAddr)
+	log.Printf("CONNECT 目标: %s", destAddr)
 
 	// 读取剩余的请求头并检查认证
 	var authHeader string
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			log.Printf("Error reading header: %v", err)
+			log.Printf("读取请求头时出错: %v", err)
 			return
 		}
 
-		log.Printf("Header: %q", line)
+		log.Printf("请求头: %q", line)
 
 		// 检查Proxy-Authorization头
 		if strings.HasPrefix(strings.ToLower(line), "proxy-authorization:") {
@@ -151,13 +134,13 @@ func (s *Server) handleConnectTCP(conn net.Conn, reader *bufio.Reader, firstLine
 	// 重试机制：尝试所有代理
 	for i := 0; i < s.pool.Size(); i++ {
 		proxy := s.pool.NextProxy()
-		log.Printf("Trying to connect through proxy: %s (user: %s)", proxy.Host, proxy.Username)
+		log.Printf("尝试通过代理连接: %s (用户: %s)", proxy.Host, proxy.Username)
 		upstreamConn, err = s.connectThroughProxy(destAddr, proxy)
 		if err == nil {
-			log.Printf("Successfully connected through proxy: %s", proxy.Host)
+			log.Printf("成功通过代理连接: %s", proxy.Host)
 			break
 		}
-		log.Printf("Failed to connect through proxy %s: %v", proxy.Host, err)
+		log.Printf("通过代理 %s 连接失败: %v", proxy.Host, err)
 	}
 
 	if err != nil {
@@ -177,12 +160,7 @@ func (s *Server) handleConnectTCP(conn net.Conn, reader *bufio.Reader, firstLine
 	s.copyData(conn, upstreamConn)
 }
 
-/**
- * 处理TCP HTTP请求
- * @param {net.Conn} conn - TCP连接
- * @param {*bufio.Reader} reader - 缓冲读取器
- * @param {string} firstLine - 第一行请求
- */
+// handleHTTPTCP 处理TCP HTTP请求
 func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine string) {
 	// 解析HTTP请求行
 	parts := strings.Fields(firstLine)
@@ -195,7 +173,7 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 	url := parts[1]
 	version := parts[2]
 
-	log.Printf("HTTP request: %s %s %s", method, url, version)
+	log.Printf("HTTP 请求: %s %s %s", method, url, version)
 
 	// 读取请求头并检查认证
 	headers := make(map[string]string)
@@ -205,7 +183,7 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			log.Printf("Error reading header: %v", err)
+			log.Printf("读取请求头时出错: %v", err)
 			return
 		}
 
@@ -242,7 +220,7 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 		body = make([]byte, contentLength)
 		_, err := io.ReadFull(reader, body)
 		if err != nil {
-			log.Printf("Error reading body: %v", err)
+			log.Printf("读取请求体时出错: %v", err)
 			conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
 			return
 		}
@@ -251,7 +229,7 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 	// 创建HTTP请求
 	req, err := http.NewRequest(method, url, bytes.NewReader(body))
 	if err != nil {
-		log.Printf("Error creating request: %v", err)
+		log.Printf("创建请求时出错: %v", err)
 		conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
 		return
 	}
@@ -270,11 +248,11 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 		if err == nil {
 			break
 		}
-		log.Printf("HTTP request failed, trying next proxy: %v", err)
+		log.Printf("HTTP 请求失败，尝试下一个代理: %v", err)
 	}
 
 	if err != nil {
-		log.Printf("All proxies failed: %v", err)
+		log.Printf("所有代理都失败了: %v", err)
 		conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 		return
 	}
@@ -299,16 +277,10 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 	io.Copy(conn, resp.Body)
 }
 
-/**
- * 通过代理连接到目标地址
- * @param {string} destAddr - 目标地址
- * @param {ProxyInfo} proxy - 代理信息
- * @returns {net.Conn} 连接
- * @returns {error} 错误信息
- */
-func (s *Server) connectThroughProxy(destAddr string, proxy ProxyInfo) (net.Conn, error) {
+// connectThroughProxy 通过代理连接到目标地址
+func (s *Server) connectThroughProxy(destAddr string, proxy models.ProxyInfo) (net.Conn, error) {
 	// 连接到代理服务器
-	proxyConn, err := net.DialTimeout("tcp", proxy.Host, s.timeout)
+	proxyConn, err := net.Dial("tcp", proxy.Host)
 	if err != nil {
 		return nil, err
 	}
@@ -321,17 +293,16 @@ func (s *Server) connectThroughProxy(destAddr string, proxy ProxyInfo) (net.Conn
 
 	// 添加代理认证
 	if proxy.Username != "" {
-		auth := fmt.Sprintf("%s:%s", proxy.Username, proxy.Password)
-		encoded := base64.StdEncoding.EncodeToString([]byte(auth))
-		authHeader := fmt.Sprintf("Proxy-Authorization: Basic %s\r\n", encoded)
+		authValue := auth.EncodeBasicAuth(proxy.Username, proxy.Password)
+		authHeader := fmt.Sprintf("Proxy-Authorization: %s\r\n", authValue)
 		connectReq += authHeader
-		log.Printf("Adding proxy auth for %s: %s", proxy.Host, authHeader)
+		log.Printf("为代理 %s 添加认证: %s", proxy.Host, authHeader)
 	}
 
 	connectReq += "\r\n"
 
 	// 发送CONNECT请求
-	log.Printf("Sending CONNECT request to proxy %s:\n%s", proxy.Host, connectReq)
+	log.Printf("向代理 %s 发送 CONNECT 请求:\n%s", proxy.Host, connectReq)
 	_, err = proxyConn.Write([]byte(connectReq))
 	if err != nil {
 		proxyConn.Close()
@@ -347,73 +318,49 @@ func (s *Server) connectThroughProxy(destAddr string, proxy ProxyInfo) (net.Conn
 	}
 
 	response := string(buffer[:n])
-	log.Printf("Proxy response from %s: %s", proxy.Host, response)
+	log.Printf("来自代理 %s 的响应: %s", proxy.Host, response)
 	if !strings.Contains(response, "200") {
 		proxyConn.Close()
-		return nil, fmt.Errorf("proxy connection failed: %s", response)
+		return nil, fmt.Errorf("代理连接失败: %s", response)
 	}
 
 	return proxyConn, nil
 }
 
-/**
- * 数据复制
- * @param {io.Writer} dst - 目标写入器
- * @param {io.Reader} src - 源读取器
- */
+// copyData 数据复制
 func (s *Server) copyData(dst io.Writer, src io.Reader) {
 	io.Copy(dst, src)
 }
 
-/**
- * 检查TCP连接的代理认证
- * @param {net.Conn} conn - TCP连接
- * @param {string} authHeader - 认证头内容
- * @returns {bool} 认证是否通过
- */
+// checkAuthTCP 检查TCP连接的代理认证
 func (s *Server) checkAuthTCP(conn net.Conn, authHeader string) bool {
 	// 如果没有设置认证，则跳过检查
 	if s.authUsername == "" && s.authPassword == "" {
-		log.Printf("No auth configured, skipping auth check")
+		log.Printf("未配置认证，跳过认证检查")
 		return true
 	}
 
-	log.Printf("Auth required: username=%s", s.authUsername)
-	log.Printf("Auth header: %s", authHeader)
+	log.Printf("需要认证: 用户名=%s", s.authUsername)
+	log.Printf("认证头: %s", authHeader)
 
 	// 检查是否有认证头
 	if authHeader == "" {
-		log.Printf("No Proxy-Authorization header found")
+		log.Printf("未找到 Proxy-Authorization 头")
 		s.sendAuthRequiredTCP(conn)
 		return false
 	}
 
 	// 解析Basic认证
-	if !strings.HasPrefix(authHeader, "Basic ") {
-		s.sendAuthRequiredTCP(conn)
-		return false
-	}
-
-	// 解码Base64
-	encoded := authHeader[6:] // 去掉"Basic "前缀
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	username, password, err := auth.DecodeBasicAuth(authHeader)
 	if err != nil {
+		log.Printf("认证解析失败: %v", err)
 		s.sendAuthRequiredTCP(conn)
 		return false
 	}
-
-	// 分割用户名和密码
-	credentials := string(decoded)
-	parts := strings.SplitN(credentials, ":", 2)
-	if len(parts) != 2 {
-		s.sendAuthRequiredTCP(conn)
-		return false
-	}
-
-	username, password := parts[0], parts[1]
 
 	// 验证用户名和密码
 	if username != s.authUsername || password != s.authPassword {
+		log.Printf("认证失败: 用户名或密码错误")
 		s.sendAuthRequiredTCP(conn)
 		return false
 	}
@@ -421,10 +368,7 @@ func (s *Server) checkAuthTCP(conn net.Conn, authHeader string) bool {
 	return true
 }
 
-/**
- * 发送TCP认证要求响应
- * @param {net.Conn} conn - TCP连接
- */
+// sendAuthRequiredTCP 发送TCP认证要求响应
 func (s *Server) sendAuthRequiredTCP(conn net.Conn) {
 	response := "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"ProxyFlow\"\r\n\r\n"
 	conn.Write([]byte(response))

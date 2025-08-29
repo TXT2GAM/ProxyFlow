@@ -1,27 +1,27 @@
-# Start from the official Golang image  
-FROM golang:1.25-alpine AS build  
+# 使用官方 Golang 镜像作为构建环境
+FROM golang:1.24-alpine AS build
 
-# Set working directory  
-WORKDIR /app  
+# 设置工作目录
+WORKDIR /app
 
-# Copy go.mod and go.sum files first for better caching  
-COPY go.mod go.sum* ./  
+# 先复制 go.mod 和 go.sum 文件以便更好地利用缓存
+COPY go.mod go.sum* ./
 
-# Download dependencies  
-RUN go mod download  
+# 下载依赖
+RUN go mod download
 
-# Copy the source code  
-COPY . .  
+# 复制源代码
+COPY . .
 
-# Build the application  
-RUN CGO_ENABLED=0 GOOS=linux go build -o main ./main.go  
+# 构建应用程序
+RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/proxyflow
 
-# Create a minimal production image  
-FROM alpine:latest  
+# 创建最小化的生产镜像
+FROM alpine:latest
 
-# Create app directory and set permissions  
-WORKDIR /app  
-COPY --from=build /app/main .  
+# 创建应用目录并设置权限
+WORKDIR /app
+COPY --from=build /app/main .
 
-# Command to run the executable  
-CMD ["./main"]  
+# 运行可执行文件
+CMD ["./main"]

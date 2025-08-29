@@ -67,7 +67,7 @@ AUTH_PASSWORD=123456
 go mod tidy
 
 # 编译
-go build -o proxyflow
+go build -o proxyflow ./cmd/proxyflow
 
 # 运行
 ./proxyflow
@@ -97,7 +97,7 @@ go build -o proxyflow
 
 1. **创建项目目录**
 ```bash
-mkdir proxyflow && cd proxyflow
+mkdir proxy-flow && cd proxy-flow
 ```
 
 2. **创建代理列表文件**
@@ -139,7 +139,7 @@ services:
 docker-compose up -d
 
 # 查看日志
-docker-compose logs -f proxyflow
+docker-compose logs -f proxy-flow
 
 # 停止服务
 docker-compose down
@@ -182,13 +182,20 @@ curl.exe -v -x http://127.0.0.1:8282 https://httpbin.org/ip
 
 ```
 ProxyFlow/
-├── main.go              # 程序入口点
-├── proxy/
-│   ├── server.go        # TCP代理服务器核心
-│   ├── pool.go          # 代理池管理
-│   └── client.go        # HTTP客户端连接池
-├── config/
-│   └── config.go        # 配置管理
+├── cmd/
+│   └── proxyflow/
+│       └── main.go      # 程序入口点
+├── internal/
+│   ├── server/
+│   │   └── server.go    # TCP代理服务器核心
+│   ├── pool/
+│   │   └── pool.go      # 代理池管理
+│   ├── client/
+│   │   └── client.go    # HTTP客户端连接池
+│   ├── config/
+│   │   └── config.go    # 配置管理
+│   └── models/
+│       └── proxy.go     # 数据模型
 ├── proxy.txt            # 代理列表文件
 ├── .env                 # 环境变量配置
 └── docker-compose.yml   # Docker部署配置

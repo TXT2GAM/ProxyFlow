@@ -34,3 +34,7 @@ go.work.sum
 proxy.txt
 *test*.ps1
 *test*.go
+
+# 新的编译产物
+cmd/proxyflow/proxyflow
+cmd/proxyflow/proxyflow.exe

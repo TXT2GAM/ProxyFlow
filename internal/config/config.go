@@ -6,9 +6,7 @@ import (
 	"time"
 )
 
-/**
- * 应用配置结构
- */
+// Config 应用配置结构
 type Config struct {
 	ProxyPort      string        // 代理服务监听端口
 	ProxyFile      string        // 代理文件路径
@@ -18,10 +16,7 @@ type Config struct {
 	AuthPassword   string        // 代理服务器认证密码
 }
 
-/**
- * 加载配置从环境变量
- * @returns {*Config} 配置实例
- */
+// Load 加载配置从环境变量
 func Load() *Config {
 	return &Config{
 		ProxyPort:      getEnv("PROXY_PORT", "8080"),
@@ -33,12 +28,7 @@ func Load() *Config {
 	}
 }
 
-/**
- * 获取环境变量字符串值
- * @param {string} key - 环境变量键
- * @param {string} defaultValue - 默认值
- * @returns {string} 环境变量值或默认值
- */
+// getEnv 获取环境变量字符串值
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -46,12 +36,7 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-/**
- * 获取环境变量整数值
- * @param {string} key - 环境变量键
- * @param {int} defaultValue - 默认值
- * @returns {int} 环境变量值或默认值
- */
+// getEnvInt 获取环境变量整数值
 func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
