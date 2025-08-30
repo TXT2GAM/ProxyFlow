@@ -1,16 +1,27 @@
+// Package auth 提供HTTP Basic认证处理功能。
+//
+// 本包实现了HTTP Basic认证的编码和解码功能，用于处理代理服务器
+// 的认证逻辑。支持标准的Base64编码格式，提供安全的认证字符串
+// 生成和解析功能。
 package auth
 
 import (
 	"encoding/base64"
 	"fmt"
+	"strings"
 )
 
-/**
- * EncodeBasicAuth 编码Basic认证字符串
- * @param {string} username - 用户名
- * @param {string} password - 密码
- * @returns {string} 编码后的Basic认证字符串
- */
+// EncodeBasicAuth 编码HTTP Basic认证字符串。
+//
+// 将用户名和密码编码为HTTP Basic认证格式的字符串。
+// 如果用户名为空，则返回空字符串表示不需要认证。
+//
+// 参数：
+//   - username: 认证用户名
+//   - password: 认证密码
+//
+// 返回值：
+//   - string: 编码后的Basic认证字符串，格式为"Basic <base64>"
 func EncodeBasicAuth(username, password string) string {
 	if username == "" {
 		return ""
@@ -20,11 +31,18 @@ func EncodeBasicAuth(username, password string) string {
 	return "Basic " + encoded
 }
 
-/**
- * DecodeBasicAuth 解码Basic认证字符串
- * @param {string} authHeader - 认证头部值
- * @returns {string, string, error} 用户名、密码和错误信息
- */
+// DecodeBasicAuth 解码HTTP Basic认证字符串。
+//
+// 解析HTTP Basic认证头，提取用户名和密码信息。
+// 支持标准的"Basic <base64>"格式。
+//
+// 参数：
+//   - authHeader: HTTP认证头字符串
+//
+// 返回值：
+//   - string: 解析出的用户名
+//   - string: 解析出的密码
+//   - error: 解析错误，如果成功则为nil
 func DecodeBasicAuth(authHeader string) (string, string, error) {
 	if authHeader == "" {
 		return "", "", fmt.Errorf("认证头为空")
@@ -45,11 +63,10 @@ func DecodeBasicAuth(authHeader string) (string, string, error) {
 
 	// 分割用户名和密码
 	credentials := string(decoded)
-	for i := 0; i < len(credentials); i++ {
-		if credentials[i] == ':' {
-			return credentials[:i], credentials[i+1:], nil
-		}
+	parts := strings.SplitN(credentials, ":", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("认证格式无效")
 	}
-
-	return "", "", fmt.Errorf("认证格式无效")
+	
+	return parts[0], parts[1], nil
 }

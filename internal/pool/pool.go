@@ -1,3 +1,8 @@
+// Package pool 提供代理池管理功能。
+//
+// 本包实现了代理服务器池的管理，包括代理列表加载、解析、验证
+// 和轮询分配等功能。支持从文件读取代理配置，自动解析代理URL
+// 和认证信息，提供线程安全的代理轮询机制。
 package pool
 
 import (
@@ -12,13 +17,26 @@ import (
 	"github.com/rfym21/ProxyFlow/internal/models"
 )
 
-// Pool 代理池管理器
+// Pool 代理池管理器。
+//
+// 管理多个代理服务器的连接信息，提供线程安全的
+// 轮询分配机制，确保请求在所有可用代理之间均衡分配。
 type Pool struct {
 	proxies []models.ProxyInfo // 代理列表
 	current int64              // 当前索引（原子操作）
 }
 
-// NewPool 创建新的代理池
+// NewPool 创建新的代理池实例。
+//
+// 从指定的文件加载代理列表，解析每个代理的URL和认证信息。
+// 支持空行和以#开头的注释行。
+//
+// 参数：
+//   - filename: 代理列表文件路径
+//
+// 返回值：
+//   - *Pool: 初始化完成的代理池实例
+//   - error: 初始化错误，成功时为nil
 func NewPool(filename string) (*Pool, error) {
 	pool := &Pool{
 		proxies: make([]models.ProxyInfo, 0),
@@ -37,7 +55,16 @@ func NewPool(filename string) (*Pool, error) {
 	return pool, nil
 }
 
-// loadProxies 从文件加载代理列表
+// loadProxies 从文件加载代理列表。
+//
+// 逐行读取文件内容，解析每个代理URL并添加到代理池中。
+// 自动跳过无效行，对无效的代理配置输出警告日志。
+//
+// 参数：
+//   - filename: 代理列表文件路径
+//
+// 返回值：
+//   - error: 文件读取错误，成功时为nil
 func (p *Pool) loadProxies(filename string) error {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -69,7 +96,17 @@ func (p *Pool) loadProxies(filename string) error {
 	return scanner.Err()
 }
 
-// parseProxy 解析代理字符串
+// parseProxy 解析代理字符串。
+//
+// 将代理URL字符串解析为ProxyInfo结构，提取协议、
+// 主机地址和认证信息。仅支持HTTP和HTTPS协议。
+//
+// 参数：
+//   - proxyStr: 代理URL字符串，格式为scheme://[user:pass@]host:port
+//
+// 返回值：
+//   - *ProxyInfo: 解析后的代理信息结构
+//   - error: 解析错误，成功时为nil
 func (p *Pool) parseProxy(proxyStr string) (*models.ProxyInfo, error) {
 	proxyURL, err := url.Parse(proxyStr)
 	if err != nil {
@@ -91,16 +128,18 @@ func (p *Pool) parseProxy(proxyStr string) (*models.ProxyInfo, error) {
 		if password, ok := proxyURL.User.Password(); ok {
 			proxyInfo.Password = password
 		}
-		log.Printf("解析代理: 主机=%s, 用户名=%s, 密码=%s",
-			proxyInfo.Host, proxyInfo.Username, proxyInfo.Password)
-	} else {
-		log.Printf("代理URL中未找到认证信息: %s", proxyStr)
 	}
 
 	return proxyInfo, nil
 }
 
-// NextProxy 获取下一个代理（轮询方式）
+// NextProxy 获取下一个代理服务器信息。
+//
+// 使用原子操作实现线程安全的轮询算法，确保在多并发
+// 环境下正确分配代理。如果代理池为空，返回空的ProxyInfo。
+//
+// 返回值：
+//   - ProxyInfo: 下一个可用的代理服务器信息
 func (p *Pool) NextProxy() models.ProxyInfo {
 	if len(p.proxies) == 0 {
 		return models.ProxyInfo{}
@@ -111,7 +150,10 @@ func (p *Pool) NextProxy() models.ProxyInfo {
 	return p.proxies[index]
 }
 
-// Size 获取代理池大小
+// Size 获取代理池中的代理数量。
+//
+// 返回值：
+//   - int: 当前代理池中的代理服务器数量
 func (p *Pool) Size() int {
 	return len(p.proxies)
 }

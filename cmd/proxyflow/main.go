@@ -12,7 +12,7 @@ import (
 	"github.com/rfym21/ProxyFlow/internal/server"
 )
 
-// main 程序入口点
+// main 程序入口点，负责初始化配置、创建代理池和启动服务器。
 func main() {
 	// 加载环境变量
 	if err := godotenv.Load(); err != nil {
@@ -43,7 +43,10 @@ func main() {
 	}
 }
 
-// setupGracefulShutdown 设置优雅关闭处理
+// setupGracefulShutdown 设置优雅关闭处理。
+//
+// 监听系统中断信号（SIGINT、SIGTERM），在接收到信号时
+// 执行优雅的服务关闭流程。
 func setupGracefulShutdown() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)

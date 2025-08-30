@@ -1,3 +1,8 @@
+// Package server 提供HTTP代理服务器核心功能。
+//
+// 本包实现了完整的HTTP/HTTPS代理服务器，支持TCP连接处理、代理认证、
+// 上游代理连接管理和双向数据转发等功能。服务器支持CONNECT隧道方式
+// 和标准HTTP代理方式，能够处理HTTP和HTTPS流量。
 package server
 
 import (
@@ -17,7 +22,10 @@ import (
 	"github.com/rfym21/ProxyFlow/internal/pool"
 )
 
-// Server HTTP代理服务器
+// Server HTTP代理服务器。
+//
+// 代理服务器核心实现，支持HTTP和HTTPS流量代理。
+// 提供认证、连接池管理和上游代理负载均衡等功能。
 type Server struct {
 	pool         *pool.Pool     // 代理池
 	client       *client.Client // HTTP客户端
@@ -26,7 +34,16 @@ type Server struct {
 	authPassword string         // 认证密码
 }
 
-// NewServer 创建新的代理服务器
+// NewServer 创建新的代理服务器实例。
+//
+// 参数：
+//   - proxyPool: 代理池实例，用于管理上游代理
+//   - timeout: HTTP请求超时时间
+//   - authUsername: 代理服务器认证用户名，为空则不需要认证
+//   - authPassword: 代理服务器认证密码
+//
+// 返回值：
+//   - *Server: 配置完成的代理服务器实例
 func NewServer(proxyPool *pool.Pool, timeout time.Duration, authUsername, authPassword string) *Server {
 	return &Server{
 		pool:         proxyPool,
@@ -37,7 +54,16 @@ func NewServer(proxyPool *pool.Pool, timeout time.Duration, authUsername, authPa
 	}
 }
 
-// Start 启动代理服务器
+// Start 启动代理服务器并监听指定端口。
+//
+// 创建TCP监听器并开始接收客户端连接。每个连接
+// 在独立的goroutine中处理，支持并发请求。
+//
+// 参数：
+//   - port: 监听端口号
+//
+// 返回值：
+//   - error: 服务器启动错误，成功时为nil
 func (s *Server) Start(port string) error {
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
@@ -59,13 +85,17 @@ func (s *Server) Start(port string) error {
 	}
 }
 
-// handleConnection 处理TCP连接
+// handleConnection 处理单个TCP连接。
+//
+// 分析连接的第一行数据来判断请求类型：
+// - CONNECT方法：处理HTTPS隧道连接
+// - 其他方法：处理标准HTTP请求
+//
+// 参数：
+//   - conn: 客户端TCP连接
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	log.Printf("来自 %s 的新连接", conn.RemoteAddr())
-
-	// 读取第一行来判断请求类型
 	reader := bufio.NewReader(conn)
 	firstLine, err := reader.ReadString('\n')
 	if err != nil {
@@ -73,18 +103,22 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 	}
 
-	log.Printf("第一行: %q", firstLine)
-
 	if strings.HasPrefix(firstLine, "CONNECT ") {
-		log.Printf("处理 CONNECT 请求")
 		s.handleConnectTCP(conn, reader, firstLine)
 	} else {
-		log.Printf("处理 HTTP 请求")
 		s.handleHTTPTCP(conn, reader, firstLine)
 	}
 }
 
-// handleConnectTCP 处理TCP CONNECT请求
+// handleConnectTCP 处理TCP CONNECT请求。
+//
+// 处理HTTPS隧道连接，解析CONNECT请求并建立到目标服务器的隧道。
+// 支持代理认证和自动的双向数据转发。
+//
+// 参数：
+//   - conn: 客户端连接
+//   - reader: 缓冲读取器
+//   - firstLine: 已读取的第一行数据
 func (s *Server) handleConnectTCP(conn net.Conn, reader *bufio.Reader, firstLine string) {
 	// 解析CONNECT请求
 	parts := strings.Fields(firstLine)
@@ -98,18 +132,13 @@ func (s *Server) handleConnectTCP(conn net.Conn, reader *bufio.Reader, firstLine
 		destAddr += ":443"
 	}
 
-	log.Printf("CONNECT 目标: %s", destAddr)
-
-	// 读取剩余的请求头并检查认证
+	// 读取请求头并检查认证
 	var authHeader string
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			log.Printf("读取请求头时出错: %v", err)
 			return
 		}
-
-		log.Printf("请求头: %q", line)
 
 		// 检查Proxy-Authorization头
 		if strings.HasPrefix(strings.ToLower(line), "proxy-authorization:") {
@@ -131,16 +160,13 @@ func (s *Server) handleConnectTCP(conn net.Conn, reader *bufio.Reader, firstLine
 	var upstreamConn net.Conn
 	var err error
 
-	// 重试机制：尝试所有代理
+	// 尝试通过代理连接
 	for i := 0; i < s.pool.Size(); i++ {
 		proxy := s.pool.NextProxy()
-		log.Printf("尝试通过代理连接: %s (用户: %s)", proxy.Host, proxy.Username)
 		upstreamConn, err = s.connectThroughProxy(destAddr, proxy)
 		if err == nil {
-			log.Printf("成功通过代理连接: %s", proxy.Host)
 			break
 		}
-		log.Printf("通过代理 %s 连接失败: %v", proxy.Host, err)
 	}
 
 	if err != nil {
@@ -160,7 +186,15 @@ func (s *Server) handleConnectTCP(conn net.Conn, reader *bufio.Reader, firstLine
 	s.copyData(conn, upstreamConn)
 }
 
-// handleHTTPTCP 处理TCP HTTP请求
+// handleHTTPTCP 处理TCP HTTP请求。
+//
+// 处理标准HTTP请求，包括请求解析、认证验证、
+// 代理转发和响应返回。支持各种HTTP方法。
+//
+// 参数：
+//   - conn: 客户端连接
+//   - reader: 缓冲读取器
+//   - firstLine: 已读取的第一行数据
 func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine string) {
 	// 解析HTTP请求行
 	parts := strings.Fields(firstLine)
@@ -171,9 +205,6 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 
 	method := parts[0]
 	url := parts[1]
-	version := parts[2]
-
-	log.Printf("HTTP 请求: %s %s %s", method, url, version)
 
 	// 读取请求头并检查认证
 	headers := make(map[string]string)
@@ -183,7 +214,6 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			log.Printf("读取请求头时出错: %v", err)
 			return
 		}
 
@@ -220,7 +250,6 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 		body = make([]byte, contentLength)
 		_, err := io.ReadFull(reader, body)
 		if err != nil {
-			log.Printf("读取请求体时出错: %v", err)
 			conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
 			return
 		}
@@ -229,7 +258,6 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 	// 创建HTTP请求
 	req, err := http.NewRequest(method, url, bytes.NewReader(body))
 	if err != nil {
-		log.Printf("创建请求时出错: %v", err)
 		conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
 		return
 	}
@@ -248,11 +276,9 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 		if err == nil {
 			break
 		}
-		log.Printf("HTTP 请求失败，尝试下一个代理: %v", err)
 	}
 
 	if err != nil {
-		log.Printf("所有代理都失败了: %v", err)
 		conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 		return
 	}
@@ -277,7 +303,18 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 	io.Copy(conn, resp.Body)
 }
 
-// connectThroughProxy 通过代理连接到目标地址
+// connectThroughProxy 通过代理服务器连接到目标地址。
+//
+// 建立到上游代理的连接，发送CONNECT请求以建立隧道。
+// 支持代理认证和响应验证。
+//
+// 参数：
+//   - destAddr: 目标地址（host:port格式）
+//   - proxy: 代理服务器信息
+//
+// 返回值：
+//   - net.Conn: 建立的代理连接
+//   - error: 连接错误，成功时为nil
 func (s *Server) connectThroughProxy(destAddr string, proxy models.ProxyInfo) (net.Conn, error) {
 	// 连接到代理服务器
 	proxyConn, err := net.Dial("tcp", proxy.Host)
@@ -296,13 +333,11 @@ func (s *Server) connectThroughProxy(destAddr string, proxy models.ProxyInfo) (n
 		authValue := auth.EncodeBasicAuth(proxy.Username, proxy.Password)
 		authHeader := fmt.Sprintf("Proxy-Authorization: %s\r\n", authValue)
 		connectReq += authHeader
-		log.Printf("为代理 %s 添加认证: %s", proxy.Host, authHeader)
 	}
 
 	connectReq += "\r\n"
 
 	// 发送CONNECT请求
-	log.Printf("向代理 %s 发送 CONNECT 请求:\n%s", proxy.Host, connectReq)
 	_, err = proxyConn.Write([]byte(connectReq))
 	if err != nil {
 		proxyConn.Close()
@@ -318,7 +353,6 @@ func (s *Server) connectThroughProxy(destAddr string, proxy models.ProxyInfo) (n
 	}
 
 	response := string(buffer[:n])
-	log.Printf("来自代理 %s 的响应: %s", proxy.Host, response)
 	if !strings.Contains(response, "200") {
 		proxyConn.Close()
 		return nil, fmt.Errorf("代理连接失败: %s", response)
@@ -327,25 +361,37 @@ func (s *Server) connectThroughProxy(destAddr string, proxy models.ProxyInfo) (n
 	return proxyConn, nil
 }
 
-// copyData 数据复制
+// copyData 在两个连接间复制数据。
+//
+// 用于隧道模式下的双向数据转发，直到数据传输完成
+// 或发生错误。该函数会阻塞直到数据传输结束。
+//
+// 参数：
+//   - dst: 目标写入器
+//   - src: 源读取器
 func (s *Server) copyData(dst io.Writer, src io.Reader) {
 	io.Copy(dst, src)
 }
 
-// checkAuthTCP 检查TCP连接的代理认证
+// checkAuthTCP 检查TCP连接的代理认证。
+//
+// 验证客户端提供的认证凭据是否正确。如果未配置认证，
+// 则跳过验证。认证失败时发送407响应。
+//
+// 参数：
+//   - conn: 客户端连接
+//   - authHeader: 认证头字符串
+//
+// 返回值：
+//   - bool: 认证是否通过
 func (s *Server) checkAuthTCP(conn net.Conn, authHeader string) bool {
 	// 如果没有设置认证，则跳过检查
 	if s.authUsername == "" && s.authPassword == "" {
-		log.Printf("未配置认证，跳过认证检查")
 		return true
 	}
 
-	log.Printf("需要认证: 用户名=%s", s.authUsername)
-	log.Printf("认证头: %s", authHeader)
-
 	// 检查是否有认证头
 	if authHeader == "" {
-		log.Printf("未找到 Proxy-Authorization 头")
 		s.sendAuthRequiredTCP(conn)
 		return false
 	}
@@ -353,14 +399,12 @@ func (s *Server) checkAuthTCP(conn net.Conn, authHeader string) bool {
 	// 解析Basic认证
 	username, password, err := auth.DecodeBasicAuth(authHeader)
 	if err != nil {
-		log.Printf("认证解析失败: %v", err)
 		s.sendAuthRequiredTCP(conn)
 		return false
 	}
 
 	// 验证用户名和密码
 	if username != s.authUsername || password != s.authPassword {
-		log.Printf("认证失败: 用户名或密码错误")
 		s.sendAuthRequiredTCP(conn)
 		return false
 	}
@@ -368,7 +412,13 @@ func (s *Server) checkAuthTCP(conn net.Conn, authHeader string) bool {
 	return true
 }
 
-// sendAuthRequiredTCP 发送TCP认证要求响应
+// sendAuthRequiredTCP 发送TCP认证要求响应。
+//
+// 向客户端发送407 Proxy Authentication Required响应，
+// 要求客户端提供认证信息。
+//
+// 参数：
+//   - conn: 客户端连接
 func (s *Server) sendAuthRequiredTCP(conn net.Conn) {
 	response := "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"ProxyFlow\"\r\n\r\n"
 	conn.Write([]byte(response))

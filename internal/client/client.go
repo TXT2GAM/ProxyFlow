@@ -1,3 +1,8 @@
+// Package client 提供HTTP客户端连接池管理功能。
+//
+// 本包实现了基于代理池的HTTP客户端管理器，自动处理上游代理认证、
+// 连接复用和负载均衡等功能。为代理服务器提供高效的HTTP请求转发，
+// 支持多种代理协议和认证方式。
 package client
 
 import (
@@ -12,18 +17,33 @@ import (
 	"github.com/rfym21/ProxyFlow/internal/pool"
 )
 
-// proxyAuthTransport 代理认证传输层
+// proxyAuthTransport 代理认证传输层。
+//
+// 实现http.RoundTripper接口，自动为HTTP请求添加
+// Proxy-Authorization头部，用于代理服务器认证。
 type proxyAuthTransport struct {
 	base      http.RoundTripper
 	proxyAuth string
 }
 
+// RoundTrip 执行HTTP请求并添加代理认证头。
+//
+// 参数：
+//   - req: HTTP请求实例
+//
+// 返回值：
+//   - *http.Response: HTTP响应实例
+//   - error: 请求执行错误，成功时为nil
 func (t *proxyAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Proxy-Authorization", t.proxyAuth)
 	return t.base.RoundTrip(req)
 }
 
-// Client HTTP客户端连接池管理器
+// Client HTTP客户端连接池管理器。
+//
+// 管理多个代理服务器的HTTP客户端实例，提供连接复用、
+// 负载均衡和认证管理等功能。每个代理对应一个独立的
+// HTTP客户端实例，含有专门的连接池配置。
 type Client struct {
 	pool       *pool.Pool              // 代理池
 	clients    map[string]*http.Client // 每个代理的HTTP客户端
@@ -31,7 +51,14 @@ type Client struct {
 	timeout    time.Duration           // 请求超时时间
 }
 
-// NewClient 创建新的HTTP客户端管理器
+// NewClient 创建新的HTTP客户端管理器实例。
+//
+// 参数：
+//   - proxyPool: 代理池实例，用于提供可用的代理服务器
+//   - timeout: HTTP请求超时时间
+//
+// 返回值：
+//   - *Client: 初始化完成的客户端管理器实例
 func NewClient(proxyPool *pool.Pool, timeout time.Duration) *Client {
 	return &Client{
 		pool:    proxyPool,
@@ -40,7 +67,17 @@ func NewClient(proxyPool *pool.Pool, timeout time.Duration) *Client {
 	}
 }
 
-// Do 执行HTTP请求
+// Do 通过代理服务器执行HTTP请求。
+//
+// 从代理池中获取下一个可用的代理服务器，
+// 使用对应的HTTP客户端执行请求。
+//
+// 参数：
+//   - req: 要执行的HTTP请求
+//
+// 返回值：
+//   - *http.Response: HTTP响应实例
+//   - error: 请求执行错误，成功时为nil
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	// 获取下一个代理
 	proxy := c.pool.NextProxy()
@@ -55,7 +92,16 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return client.Do(req)
 }
 
-// getClient 获取或创建HTTP客户端
+// getClient 获取或创建指定代理的HTTP客户端。
+//
+// 使用双重检查锁定模式确保线程安全，避免重复创建客户端。
+// 如果对应的客户端不存在，则创建新的客户端实例。
+//
+// 参数：
+//   - proxy: 代理服务器信息
+//
+// 返回值：
+//   - *http.Client: 对应的HTTP客户端实例
 func (c *Client) getClient(proxy models.ProxyInfo) *http.Client {
 	proxyKey := proxy.Host
 
@@ -83,7 +129,16 @@ func (c *Client) getClient(proxy models.ProxyInfo) *http.Client {
 	return client
 }
 
-// createClient 创建HTTP客户端
+// createClient 创建新的HTTP客户端实例。
+//
+// 根据代理信息配置客户端，设置代理URL、认证信息、
+// 连接池参数和超时配置。支持HTTP和HTTPS代理。
+//
+// 参数：
+//   - proxy: 代理服务器信息
+//
+// 返回值：
+//   - *http.Client: 配置完成的HTTP客户端实例
 func (c *Client) createClient(proxy models.ProxyInfo) *http.Client {
 	// 创建代理URL
 	proxyURL := &url.URL{
@@ -119,7 +174,10 @@ func (c *Client) createClient(proxy models.ProxyInfo) *http.Client {
 	}
 }
 
-// Close 清理客户端连接池
+// Close 清理所有客户端连接池。
+//
+// 关闭所有缓存的HTTP客户端的空闲连接，释放资源。
+// 在服务关闭或重新初始化时调用。
 func (c *Client) Close() {
 	c.clientsMux.Lock()
 	defer c.clientsMux.Unlock()
