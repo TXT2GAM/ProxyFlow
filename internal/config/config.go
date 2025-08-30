@@ -33,7 +33,7 @@ type Config struct {
 //   - *Config: 配置实例指针
 func Load() *Config {
 	return &Config{
-		ProxyPort:      getEnv("PROXY_PORT", "8080"),
+		ProxyPort:      getEnv("PROXY_PORT", "8282"),
 		ProxyFile:      getEnv("PROXY_FILE", "proxy.txt"),
 		PoolSize:       getEnvInt("POOL_SIZE", 100),
 		RequestTimeout: time.Duration(getEnvInt("REQUEST_TIMEOUT", 30)) * time.Second,

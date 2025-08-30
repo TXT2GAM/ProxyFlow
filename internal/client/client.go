@@ -69,27 +69,41 @@ func NewClient(proxyPool *pool.Pool, timeout time.Duration) *Client {
 
 // Do 通过代理服务器执行HTTP请求。
 //
-// 从代理池中获取下一个可用的代理服务器，
-// 使用对应的HTTP客户端执行请求。
+// 尝试使用代理池中的所有代理服务器执行请求，直到成功或全部失败。
+// 使用轮询机制选择代理，确保负载均衡。
 //
 // 参数：
 //   - req: 要执行的HTTP请求
 //
 // 返回值：
 //   - *http.Response: HTTP响应实例
+//   - models.ProxyInfo: 成功使用的代理服务器信息
 //   - error: 请求执行错误，成功时为nil
-func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	// 获取下一个代理
-	proxy := c.pool.NextProxy()
-	if proxy.Host == "" {
-		return nil, fmt.Errorf("没有可用的代理")
+func (c *Client) Do(req *http.Request) (*http.Response, models.ProxyInfo, error) {
+	if c.pool.Size() == 0 {
+		return nil, models.ProxyInfo{}, fmt.Errorf("没有可用的代理")
 	}
 
-	// 获取或创建对应的HTTP客户端
-	client := c.getClient(proxy)
+	// 尝试所有代理
+	var lastErr error
+	for i := 0; i < c.pool.Size(); i++ {
+		proxy := c.pool.NextProxy()
+		if proxy.Host == "" {
+			continue
+		}
 
-	// 执行请求
-	return client.Do(req)
+		// 获取或创建对应的HTTP客户端
+		client := c.getClient(proxy)
+
+		// 执行请求
+		resp, err := client.Do(req)
+		if err == nil {
+			return resp, proxy, nil
+		}
+		lastErr = err
+	}
+
+	return nil, models.ProxyInfo{}, fmt.Errorf("所有代理都失败了，最后错误: %v", lastErr)
 }
 
 // getClient 获取或创建指定代理的HTTP客户端。

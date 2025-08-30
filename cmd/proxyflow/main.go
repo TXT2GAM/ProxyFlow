@@ -34,12 +34,12 @@ func main() {
 	proxyServer := server.NewServer(proxyPool, cfg.RequestTimeout, cfg.AuthUsername, cfg.AuthPassword)
 
 	// 设置优雅关闭
-	setupGracefulShutdown()
+	setupGracefulShutdown(proxyServer)
 
 	// 启动服务器
 	log.Printf("ProxyFlow 已准备就绪，开始处理请求")
 	if err := proxyServer.Start(cfg.ProxyPort); err != nil {
-		log.Fatalf("服务器启动失败: %v", err)
+		log.Printf("服务器关闭: %v", err)
 	}
 }
 
@@ -47,13 +47,19 @@ func main() {
 //
 // 监听系统中断信号（SIGINT、SIGTERM），在接收到信号时
 // 执行优雅的服务关闭流程。
-func setupGracefulShutdown() {
+//
+// 参数：
+//   - server: 代理服务器实例
+func setupGracefulShutdown(server *server.Server) {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
 		<-c
-		log.Println("正在关闭 ProxyFlow...")
+		log.Println("收到关闭信号，正在关闭 ProxyFlow...")
+		if err := server.Shutdown(); err != nil {
+			log.Printf("关闭服务器时出错: %v", err)
+		}
 		os.Exit(0)
 	}()
 }

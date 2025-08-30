@@ -22,6 +22,13 @@ import (
 	"github.com/rfym21/ProxyFlow/internal/pool"
 )
 
+const (
+	// DefaultHTTPSPort HTTPS默认端口
+	DefaultHTTPSPort = "443"
+	// ProxyResponseBufferSize 代理响应缓冲区大小
+	ProxyResponseBufferSize = 1024
+)
+
 // Server HTTP代理服务器。
 //
 // 代理服务器核心实现，支持HTTP和HTTPS流量代理。
@@ -32,6 +39,7 @@ type Server struct {
 	timeout      time.Duration  // 请求超时时间
 	authUsername string         // 认证用户名
 	authPassword string         // 认证密码
+	listener     net.Listener   // TCP监听器
 }
 
 // NewServer 创建新的代理服务器实例。
@@ -69,7 +77,7 @@ func (s *Server) Start(port string) error {
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
+	s.listener = listener
 
 	log.Printf("代理服务器正在端口 %s 上启动", port)
 	log.Printf("使用 %d 个代理进行轮询", s.pool.Size())
@@ -78,11 +86,35 @@ func (s *Server) Start(port string) error {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Printf("接受连接时出错: %v", err)
-			continue
+			return err
 		}
 
 		go s.handleConnection(conn)
 	}
+}
+
+// Shutdown 优雅关闭代理服务器。
+//
+// 关闭TCP监听器并清理HTTP客户端连接池资源。
+// 此方法是线程安全的，可以从其他goroutine调用。
+//
+// 返回值：
+//   - error: 关闭过程中的错误，成功时为nil
+func (s *Server) Shutdown() error {
+	log.Printf("正在关闭代理服务器...")
+	
+	// 关闭TCP监听器
+	if s.listener != nil {
+		if err := s.listener.Close(); err != nil {
+			log.Printf("关闭监听器时出错: %v", err)
+		}
+	}
+	
+	// 清理HTTP客户端连接池
+	s.client.Close()
+	
+	log.Printf("代理服务器已成功关闭")
+	return nil
 }
 
 // handleConnection 处理单个TCP连接。
@@ -96,10 +128,17 @@ func (s *Server) Start(port string) error {
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	// 获取客户端IP地址
+	clientIP := conn.RemoteAddr().String()
+	log.Printf("新连接来自: %s", clientIP)
+
 	reader := bufio.NewReader(conn)
 	firstLine, err := reader.ReadString('\n')
 	if err != nil {
-		log.Printf("读取第一行时出错: %v", err)
+		// EOF错误通常表示客户端正常断开连接，不需要记录为错误
+		if err != io.EOF {
+			log.Printf("读取第一行时出错: %v", err)
+		}
 		return
 	}
 
@@ -129,7 +168,7 @@ func (s *Server) handleConnectTCP(conn net.Conn, reader *bufio.Reader, firstLine
 
 	destAddr := strings.TrimSpace(parts[1])
 	if !strings.Contains(destAddr, ":") {
-		destAddr += ":443"
+		destAddr += ":" + DefaultHTTPSPort
 	}
 
 	// 读取请求头并检查认证
@@ -137,6 +176,10 @@ func (s *Server) handleConnectTCP(conn net.Conn, reader *bufio.Reader, firstLine
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
+			// EOF错误通常表示客户端正常断开连接
+			if err != io.EOF {
+				log.Printf("读取CONNECT请求头时出错: %v", err)
+			}
 			return
 		}
 
@@ -165,6 +208,7 @@ func (s *Server) handleConnectTCP(conn net.Conn, reader *bufio.Reader, firstLine
 		proxy := s.pool.NextProxy()
 		upstreamConn, err = s.connectThroughProxy(destAddr, proxy)
 		if err == nil {
+			log.Printf("CONNECT %s -> 代理: %s", destAddr, s.formatProxyURL(proxy))
 			break
 		}
 	}
@@ -214,6 +258,10 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
+			// EOF错误通常表示客户端正常断开连接
+			if err != io.EOF {
+				log.Printf("读取HTTP请求头时出错: %v", err)
+			}
 			return
 		}
 
@@ -270,12 +318,9 @@ func (s *Server) handleHTTPTCP(conn net.Conn, reader *bufio.Reader, firstLine st
 	}
 
 	// 通过代理发送请求
-	var resp *http.Response
-	for i := 0; i < s.pool.Size(); i++ {
-		resp, err = s.client.Do(req)
-		if err == nil {
-			break
-		}
+	resp, usedProxy, err := s.client.Do(req)
+	if err == nil {
+		log.Printf("%s %s -> 代理: %s", method, url, s.formatProxyURL(usedProxy))
 	}
 
 	if err != nil {
@@ -345,7 +390,7 @@ func (s *Server) connectThroughProxy(destAddr string, proxy models.ProxyInfo) (n
 	}
 
 	// 读取代理响应
-	buffer := make([]byte, 1024)
+	buffer := make([]byte, ProxyResponseBufferSize)
 	n, err := proxyConn.Read(buffer)
 	if err != nil {
 		proxyConn.Close()
@@ -422,4 +467,20 @@ func (s *Server) checkAuthTCP(conn net.Conn, authHeader string) bool {
 func (s *Server) sendAuthRequiredTCP(conn net.Conn) {
 	response := "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"ProxyFlow\"\r\n\r\n"
 	conn.Write([]byte(response))
+}
+
+// formatProxyURL 格式化代理URL用于日志显示。
+//
+// 构建包含协议和主机信息的完整代理URL，如果包含认证信息则隐藏密码。
+//
+// 参数：
+//   - proxy: 代理服务器信息
+//
+// 返回值：
+//   - string: 格式化后的代理URL
+func (s *Server) formatProxyURL(proxy models.ProxyInfo) string {
+	if proxy.Username != "" {
+		return fmt.Sprintf("%s://%s:***@%s", proxy.URL.Scheme, proxy.Username, proxy.Host)
+	}
+	return fmt.Sprintf("%s://%s", proxy.URL.Scheme, proxy.Host)
 }

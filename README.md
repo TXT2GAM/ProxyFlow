@@ -6,6 +6,8 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=for-the-badge)
 [![Telegram](https://img.shields.io/badge/Telegram-blue?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/nodejs_project)
 
+**Language:** [中文](README.md) | [English](docs/README.en.md)
+
 </div>
 
 ## 🚀 功能特性
@@ -178,25 +180,56 @@ curl.exe -v -x http://127.0.0.1:8282 http://httpbin.org/ip
 curl.exe -v -x http://127.0.0.1:8282 https://httpbin.org/ip
 ```
 
+## 🧪 连通性测试
+
+项目提供了Go语言编写的跨平台测试工具，用于验证代理服务是否正常工作：
+
+### 使用方法
+
+```bash
+# 直接运行
+go run scripts/test-proxy.go
+
+# 或编译后运行
+go build -o test-proxy scripts/test-proxy.go
+./test-proxy
+
+# Windows
+go build -o test-proxy.exe scripts/test-proxy.go
+test-proxy.exe
+```
+
 ## 🏗️ 项目结构
 
 ```
 ProxyFlow/
 ├── cmd/
 │   └── proxyflow/
-│       └── main.go      # 程序入口点
-├── internal/
-│   ├── server/
-│   │   └── server.go    # TCP代理服务器核心
-│   ├── pool/
-│   │   └── pool.go      # 代理池管理
+│       └── main.go          # 程序入口点，负责初始化和启动服务
+├── internal/               # 内部包，不对外暴露
+│   ├── auth/
+│   │   └── auth.go         # HTTP Basic认证处理
 │   ├── client/
-│   │   └── client.go    # HTTP客户端连接池
+│   │   └── client.go       # HTTP客户端连接池管理
 │   ├── config/
-│   │   └── config.go    # 配置管理
-│   └── models/
-│       └── proxy.go     # 数据模型
-├── proxy.txt            # 代理列表文件
-├── .env                 # 环境变量配置
-└── docker-compose.yml   # Docker部署配置
+│   │   └── config.go       # 环境变量配置加载
+│   ├── models/
+│   │   └── proxy.go        # 代理信息数据结构
+│   ├── pool/
+│   │   └── pool.go         # 代理池轮询管理
+│   └── server/
+│       └── server.go       # TCP代理服务器核心实现
+├── scripts/                # 测试工具
+│   └── test-proxy.go       # Go语言测试工具 (跨平台)
+├── docs/
+│   └── README.en.md        # 英文文档
+├── .github/
+│   └── workflows/
+│       ├── docker-build-push.yml  # Docker镜像构建发布
+│       └── release.yml             # 版本发布流程
+├── proxy.txt               # 代理列表配置文件
+├── .env                    # 环境变量配置文件
+├── docker-compose.yml      # Docker Compose部署配置
+├── go.mod                  # Go模块依赖管理
+└── README.md               # 项目文档
 ```
