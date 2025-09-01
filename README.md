@@ -138,13 +138,13 @@ services:
 4. **启动服务**
 ```bash
 # 启动服务
-docker-compose up -d
+docker compose up -d
 
 # 查看日志
-docker-compose logs -f proxy-flow
+docker compose logs -f proxy-flow
 
 # 停止服务
-docker-compose down
+docker compose down
 ```
 
 ### 方式二：直接运行

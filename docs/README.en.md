@@ -138,13 +138,13 @@ services:
 4. **Start service**
 ```bash
 # Start service
-docker-compose up -d
+docker compose up -d
 
 # View logs
-docker-compose logs -f proxy-flow
+docker compose logs -f proxy-flow
 
 # Stop service
-docker-compose down
+docker compose down
 ```
 
 ### Method 2: Direct Run

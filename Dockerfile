@@ -23,5 +23,8 @@ FROM alpine:latest
 WORKDIR /app
 COPY --from=build /app/main .
 
+# 创建空的 .env 文件
+RUN touch .env
+
 # 运行可执行文件
 CMD ["./main"]
