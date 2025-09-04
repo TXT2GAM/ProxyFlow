@@ -6,13 +6,10 @@ services:
     container_name: proxy-flow
     ports:
       - "8282:8282"
-    volumes:
-      # 挂载代理列表文件
-      - ./proxy.txt:/app/proxy.txt
     environment:
       # 代理服务器配置
       - PROXY_PORT=8282
-      - PROXY_FILE=proxy.txt
+      - PROXY_API=
       - POOL_SIZE=100
       - REQUEST_TIMEOUT=30
       # 认证配置（可选，留空则无认证）

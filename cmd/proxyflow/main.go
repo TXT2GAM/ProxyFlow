@@ -21,11 +21,11 @@ func main() {
 
 	// 加载配置
 	cfg := config.Load()
-	log.Printf("启动 ProxyFlow，配置信息: 端口=%s, 代理文件=%s, 连接池大小=%d",
-		cfg.ProxyPort, cfg.ProxyFile, cfg.PoolSize)
+	log.Printf("启动 ProxyFlow，配置信息: 端口=%s, 代理API=%s, 连接池大小=%d",
+		cfg.ProxyPort, cfg.ProxyAPI, cfg.PoolSize)
 
 	// 创建代理池
-	proxyPool, err := pool.NewPool(cfg.ProxyFile)
+	proxyPool, err := pool.NewPool(cfg.ProxyAPI)
 	if err != nil {
 		log.Fatalf("创建代理池失败: %v", err)
 	}

@@ -17,7 +17,7 @@ import (
 // 资源配置和认证参数等。
 type Config struct {
 	ProxyPort      string        // 代理服务监听端口
-	ProxyFile      string        // 代理文件路径
+	ProxyAPI       string        // 代理API端点地址
 	PoolSize       int           // 连接池大小
 	RequestTimeout time.Duration // 请求超时时间
 	AuthUsername   string        // 代理服务器认证用户名
@@ -34,7 +34,7 @@ type Config struct {
 func Load() *Config {
 	return &Config{
 		ProxyPort:      getEnv("PROXY_PORT", "8282"),
-		ProxyFile:      getEnv("PROXY_FILE", "proxy.txt"),
+		ProxyAPI:       getEnv("PROXY_API", ""),
 		PoolSize:       getEnvInt("POOL_SIZE", 100),
 		RequestTimeout: time.Duration(getEnvInt("REQUEST_TIMEOUT", 30)) * time.Second,
 		AuthUsername:   getEnv("AUTH_USERNAME", ""),
